@@ -1,0 +1,542 @@
+<!doctype html>
+<!--
+Copyright 2018 The Immersive Web Community Group
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+  <meta name='mobile-web-app-capable' content='yes'>
+  <meta name='apple-mobile-web-app-capable' content='yes'>
+  <link rel='icon' type='image/png' sizes='32x32' href='favicon-32x32.png'>
+  <link rel='icon' type='image/png' sizes='96x96' href='favicon-96x96.png'>
+  <link rel='stylesheet' href='css/common.css'>
+
+  <title>Inline Session</title>
+</head>
+
+<body>
+  <header>
+    <details open>
+      <summary>Inline Session</summary>
+      <p>
+        This sample demonstrates use of an 'inline' XRSession to present
+        content on the page prior to entering XR presentation with an
+        immersive session. The viewer pose can be adjusted by clicking and
+        dragging with mouse or touch.
+        <a class="back" href="./">Back</a>
+      <p>
+        <input id='vertFOV' value='90' min='30' max='150' step='10' type='range' /><br />
+        <label id='vertFOVLabel' for="vertFOV">Vertical FOV: </label>
+      </p>
+      </p>
+    </details>
+  </header>
+  <script type="module">
+    import { WebXRButton } from './js/util/webxr-button.js';
+    import { Scene } from './js/render/scenes/scene.js';
+    import { Renderer, createWebGLContext } from './js/render/core/renderer.js';
+    import { Gltf2Node } from './js/render/nodes/gltf2.js';
+    import { SkyboxNode } from './js/render/nodes/skybox.js';
+    import { mat4, vec3, quat } from './js/render/math/gl-matrix.js';
+    import { QueryArgs } from './js/util/query-args.js';
+
+    // If requested, use the polyfill to provide support for mobile devices
+    // and devices which only support WebVR.
+    import WebXRPolyfill from './js/third-party/webxr-polyfill/build/webxr-polyfill.module.js';
+    if (QueryArgs.getBool('usePolyfill', true)) {
+      let polyfill = new WebXRPolyfill();
+    }
+
+    // Inline sessions, by default, us a vertical field of view of 90 degrees
+    // when computing projection matrices. If an application wants to use a
+    // different FoV for inline sessions it can be specified by setting the
+    // inlineVerticalFieldOfView value in an updateRenderState call. Note that
+    // this only applies to inline sessions, and attempting to set that value
+    // for an immersive session will throw an error.
+    let inlineSession = null;
+    let fov = document.getElementById('vertFOV');
+    let fovLabel = document.getElementById('vertFOVLabel');
+    function updateFov() {
+      let value = parseFloat(fov.value);
+      // The inlineVerticalFieldOfView is specified in radians.
+      let radValue = value * (Math.PI / 180);
+
+      if (inlineSession) {
+        // As with any values set with updateRenderState, this will take
+        // effect on the next frame.
+        inlineSession.updateRenderState({
+          inlineVerticalFieldOfView: radValue
+        });
+      }
+
+      // Set the label on the page
+      let label = `Vertical FOV: ${value} degrees`;
+      if (value == 90) {
+        label += ' (default)';
+      }
+      fovLabel.textContent = label;
+    }
+    fov.addEventListener('change', updateFov);
+
+    // XR globals.
+    let xrButton = null;
+    let xrImmersiveRefSpace = null;
+    let xrInlineRefSpace = null;
+
+    // WebGL scene globals.
+    let gl = null;
+    let renderer = null;
+    let scene = new Scene();
+    let solarSystem = new Gltf2Node({ url: 'media/gltf/space/space.gltf' });
+    var shaderProgram;
+    var uPMatrix;
+
+    var vertexPositionBuffer;
+    var vertexColorBuffer;
+    var textureBuffer;
+    var textureBuffer2;
+    var width = 500.0;
+    var heigth = 500.0;
+    var currentPositionMatrix;
+    var projectionMatrix;
+    //scene.addNode(solarSystem);
+    //scene.addNode(new SkyboxNode({url: 'media/textures/milky-way-4k.png'}));
+
+    function CreatePointCloud() {
+
+      let vertexPos = [];
+      for (let i = 0; i < width; i++) {
+        if (i % 3 != 0)
+          continue;
+        for (let j = 0; j < heigth; j++) {
+          //Position randomization
+          if (j % 3 != 0)
+            continue;
+          let px = i / width;
+          let py = j / heigth;
+          let pz = 0.2;
+          //Velocity randomization
+
+          vertexPos.push(...[px, py, pz]);
+
+        }
+
+      }
+      return vertexPos;
+    }
+    let vertexPosition
+
+    function initXR() {
+      xrButton = new WebXRButton({
+        onRequestSession: onRequestSession,
+        onEndSession: onEndSession
+      });
+      document.querySelector('header').appendChild(xrButton.domElement);
+
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+          xrButton.enabled = supported;
+        });
+
+        // Start up an inline session, which should always be supported on
+        // browsers that support WebXR regardless of the available hardware.
+        navigator.xr.requestSession('inline').then((session) => {
+          inlineSession = session;
+          onSessionStarted(session);
+          updateFov();
+        });
+      }
+    }
+
+    function onRequestSession() {
+      return navigator.xr.requestSession('immersive-vr').then((session) => {
+        xrButton.setSession(session);
+        // Set a flag on the session so we can differentiate it from the
+        // inline session.
+        session.isImmersive = true;
+        onSessionStarted(session);
+      });
+    }
+
+    function onSessionStarted(session) {
+      session.addEventListener('end', onSessionEnded);
+
+      if (!gl) {
+        gl = createWebGLContext({
+          xrCompatible: true
+        });
+
+        // In order for an inline session to be used we must attach the WebGL
+        // canvas to the document, which will serve as the output surface for
+        // the results of the inline session's rendering.
+        document.body.appendChild(gl.canvas);
+
+        // The canvas is synced with the window size via CSS, but we still
+        // need to update the width and height attributes in order to keep
+        // the default framebuffer resolution in-sync.
+        function onResize() {
+          gl.canvas.width = gl.canvas.clientWidth * window.devicePixelRatio;
+          gl.canvas.height = gl.canvas.clientHeight * window.devicePixelRatio;
+        }
+        window.addEventListener('resize', onResize);
+        onResize();
+
+        // Installs the listeners necessary to allow users to look around with
+        // inline sessions using the mouse or touch.
+        addInlineViewListeners(gl.canvas);
+
+        renderer = new Renderer(gl);
+
+        scene.setRenderer(renderer);
+
+        const vertextShaderSource = ` //Znak akcentu z przycisku tyldy - na lewo od przycisku 1 na klawiaturze
+
+  //canvas do ladowania textury zaiast img. pobieramy context na ktrym robimy draw. Tutoruial jak przekazac tex z canvasa.
+    precision highp float;
+    attribute vec3 aVertexPosition;
+    //attribute vec3 aVertexColor;
+    //uniform mat4 uMMatrix;
+    //uniform mat4 uVMatrix;
+    uniform sampler2D uSampler2;
+    uniform mat4 uPMatrix;
+    uniform mat4 currentPositionMatrix;
+    uniform mat4 projectionMatrix;
+    varying vec3 vPos;
+    varying vec3 vColor;
+    void main(void) {
+      vPos = vec3( projectionMatrix * vec4(aVertexPosition, 1.0));
+      //vPos = vec3(currentPositionMatrix * vec4(aVertexPosition, 1.0));
+      //vPos = aVertexPosition;
+      //
+      float maxdepth = -10.0 + 512.0/20.0;
+      float mindepth = -10.0;
+
+      float maxheigth = -10.0 + 424.0/20.0;
+      float minheigth = -10.0;
+
+      float currdepth = vPos[0];
+      float depthPercent = (currdepth - mindepth) / (maxdepth  - mindepth);
+
+      float currHeigth = vPos[1];
+      float heigthPercent = (currHeigth - minheigth) / (maxheigth  - minheigth);
+
+
+      //vec4 pointDepth = texture2D(uSampler2, vec2(depthPercent,heigthPercent));
+      //float depth = pointDepth[0] + pointDepth[1] +pointDepth[2];
+
+      //vPos[2] = vPos[2] + depth*10.0;
+      //
+      //gl_Position = uPMatrix * uVMatrix * vec4(vPos,1.0); //Dokonanie transformacji położenia punktów z przestrzeni 3D do przestrzeni obrazu (2D)
+      gl_Position =  vec4(vPos,1.0); //Dokonanie transformacji położenia punktów z przestrzeni 3D do przestrzeni obrazu (2D)
+      //vColor = aVertexColor;
+      gl_PointSize = 1.0;
+    }
+  `;
+
+        const fragmentShaderSource = `
+    precision highp float;
+    varying vec3 vPos;
+    //varying vec2 vTexUV;
+    uniform sampler2D uSampler;
+    varying vec3 vColor;
+    void main(void) {
+      float maxdepth = -10.0 + 512.0/20.0;
+      float mindepth = -10.0;
+
+      float maxheigth = 1.0;
+      float minheigth = 0.0;
+
+      float currdepth = vPos[0] *1.0;
+      float depthPercent = (currdepth - mindepth) / (maxdepth  - mindepth);
+
+      float currHeigth = vPos[1]*1.0;
+      float heigthPercent = (currHeigth - minheigth) / (maxheigth  - minheigth);
+
+      gl_FragColor = texture2D(uSampler, vec2(currdepth,currHeigth));
+    }
+  `;
+        let fragmentShader = gl.createShader(gl.FRAGMENT_SHADER); //Stworzenie obiektu shadera
+        let vertexShader = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(fragmentShader, fragmentShaderSource); //Podpięcie źródła kodu shader
+        gl.shaderSource(vertexShader, vertextShaderSource);
+        gl.compileShader(fragmentShader); //Kompilacja kodu shader
+        gl.compileShader(vertexShader);
+        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) { //Sprawdzenie ewentualnych błedów kompilacji
+          alert(gl.getShaderInfoLog(fragmentShader));
+          return null;
+        }
+        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+          alert(gl.getShaderInfoLog(vertexShader));
+          return null;
+        }
+
+        shaderProgram = gl.createProgram(); //Stworzenie obiektu programu
+        gl.attachShader(shaderProgram, vertexShader); //Podpięcie obu shaderów do naszego programu wykonywanego na karcie graficznej
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) alert("Could not initialise shaders");  //Sprawdzenie ewentualnych błedów
+
+        vertexPosition = CreatePointCloud();
+
+        vertexPositionBuffer = gl.createBuffer(); //Stworzenie tablicy w pamieci karty graficznej
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPosition), gl.STATIC_DRAW);
+        vertexPositionBuffer.itemSize = 3; //zdefiniowanie liczby współrzednych per wierzchołek
+        vertexPositionBuffer.numItems = vertexPosition.length / 9; //Zdefinoiowanie liczby punktów w naszym buforze
+
+        //vertexColorBuffer = gl.createBuffer();
+        //gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+        //gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexColor), gl.STATIC_DRAW);
+        //vertexColorBuffer.itemSize = 3;
+        //vertexColorBuffer.numItems = vertexColor.length/9;
+
+        textureBuffer = gl.createTexture();
+        var textureImg = new Image();
+        textureImg.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
+          gl.bindTexture(gl.TEXTURE_2D, textureBuffer);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+        textureImg.src = "RGB.png"; //Nazwa obrazka
+
+        textureBuffer2 = gl.createTexture();
+        var textureImg2 = new Image();
+        textureImg2.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
+          gl.bindTexture(gl.TEXTURE_2D, textureBuffer2);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg2); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+        textureImg2.src = "depth.png"; //Nazwa obrazka
+
+      }
+
+      // WebGL layers for inline sessions won't allocate their own framebuffer,
+      // which causes gl commands to naturally execute against the default
+      // framebuffer while still using the canvas dimensions to compute
+      // viewports and projection matrices.
+      let glLayer = new XRWebGLLayer(session, gl);
+
+      session.updateRenderState({
+        baseLayer: glLayer
+      });
+
+      let refSpaceType = session.isImmersive ? 'local' : 'viewer';
+      session.requestReferenceSpace(refSpaceType).then((refSpace) => {
+        // Since we're dealing with multiple sessions now we need to track
+        // which XRReferenceSpace is associated with which XRSession.
+        if (session.isImmersive) {
+          xrImmersiveRefSpace = refSpace;
+        } else {
+          xrInlineRefSpace = refSpace;
+        }
+        session.requestAnimationFrame(onXRFrame);
+      });
+    }
+
+    function onEndSession(session) {
+      session.end();
+    }
+
+    function onSessionEnded(event) {
+      // Only reset the button when the immersive session ends.
+      if (event.session.isImmersive) {
+        xrButton.setSession(null);
+      }
+    }
+
+    // Called every time a XRSession requests that a new frame be drawn.
+    function onXRFrame(t, frame) {
+      let session = frame.session;
+      // Ensure that we're using the right frame of reference for the session.
+      let refSpace = session.isImmersive ?
+        xrImmersiveRefSpace :
+        xrInlineRefSpace;
+
+      // Account for the click-and-drag mouse movement or touch movement when
+      // calculating the viewer pose for inline sessions.
+      if (!session.isImmersive) {
+        refSpace = getAdjustedRefSpace(refSpace);
+      }
+
+      let pose = frame.getViewerPose(refSpace);
+
+
+
+      scene.startFrame();
+
+      session.requestAnimationFrame(onXRFrame);
+
+      if (pose) {
+        let glLayer = session.renderState.baseLayer;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        for (let view of pose.views) {
+          let viewport = glLayer.getViewport(view);
+          gl.viewport(viewport.x, viewport.y,
+            viewport.width, viewport.height);
+
+          projectionMatrix = view.projectionMatrix;
+          currentPositionMatrix = view.uPMatrix;
+          scene.draw(view.projectionMatrix, view.transform);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPosition), gl.STATIC_DRAW);
+          gl.useProgram(shaderProgram)   //Użycie przygotowanego programu shaderowego
+
+          gl.enable(gl.DEPTH_TEST);           // Włączenie testu głębi - obiekty bliższe mają przykrywać obiekty dalsze
+          gl.depthFunc(gl.LEQUAL);            //
+
+          gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "uPMatrix"), false, new Float32Array(1)); //Wgranie macierzy kamery do pamięci karty graficznej
+          gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "uVMatrix"), false, new Float32Array(1));
+          gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "uMMatrix"), false, new Float32Array(1));
+          gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "currentPositionMatrix"), false, new Float32Array(currentPositionMatrix));
+          gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "projectionMatrix"), false, projectionMatrix);
+
+          gl.enableVertexAttribArray(gl.getAttribLocation(shaderProgram, "aVertexPosition"));  //Przekazanie położenia
+          gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+          gl.vertexAttribPointer(gl.getAttribLocation(shaderProgram, "aVertexPosition"), vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, textureBuffer);
+          gl.uniform1i(gl.getUniformLocation(shaderProgram, "uSampler"), 0);
+
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, textureBuffer2);
+          gl.uniform1i(gl.getUniformLocation(shaderProgram, "uSampler2"), 1);
+
+          gl.drawArrays(gl.POINTS, 0, vertexPositionBuffer.numItems * vertexPositionBuffer.itemSize); //Faktyczne wywołanie rendrowania
+
+        }
+      }
+
+      scene.endFrame();
+    }
+
+    // Inline view adjustment code
+    // Allow the user to click and drag the mouse (or touch and drag the
+    // screen on handheld devices) to adjust the viewer pose for inline
+    // sessions. Samples after this one will hide this logic with a utility
+    // class (InlineViewerHelper).
+    let lookYaw = 0;
+    let lookPitch = 0;
+    const LOOK_SPEED = 0.0025;
+
+    // XRReferenceSpace offset is immutable, so return a new reference space
+    // that has an updated orientation.
+    function getAdjustedRefSpace(refSpace) {
+      // Represent the rotational component of the reference space as a
+      // quaternion.
+      let invOrientation = quat.create();
+      quat.rotateX(invOrientation, invOrientation, -lookPitch);
+      quat.rotateY(invOrientation, invOrientation, -lookYaw);
+      let xform = new XRRigidTransform(
+        { x: 0, y: 0, z: 0 },
+        { x: invOrientation[0], y: invOrientation[1], z: invOrientation[2], w: invOrientation[3] });
+      return refSpace.getOffsetReferenceSpace(xform);
+    }
+
+    function rotateView(dx, dy) {
+      lookYaw += dx * LOOK_SPEED;
+      lookPitch += dy * LOOK_SPEED;
+      if (lookPitch < -Math.PI * 0.5)
+        lookPitch = -Math.PI * 0.5;
+      if (lookPitch > Math.PI * 0.5)
+        lookPitch = Math.PI * 0.5;
+    }
+
+    // Make the canvas listen for mouse and touch events so that we can
+    // adjust the viewer pose accordingly in inline sessions.
+    function addInlineViewListeners(canvas) {
+      canvas.addEventListener('mousemove', (event) => {
+        // Only rotate when the right button is pressed
+        if (event.buttons && 2) {
+          rotateView(event.movementX, event.movementY);
+        }
+      });
+
+      // Keep track of touch-related state so that users can touch and drag on
+      // the canvas to adjust the viewer pose in an inline session.
+      let primaryTouch = undefined;
+      let prevTouchX = undefined;
+      let prevTouchY = undefined;
+
+      // Keep track of all active touches, but only use the first touch to
+      // adjust the viewer pose.
+      canvas.addEventListener("touchstart", (event) => {
+        if (primaryTouch == undefined) {
+          let touch = event.changedTouches[0];
+          primaryTouch = touch.identifier;
+          prevTouchX = touch.pageX;
+          prevTouchY = touch.pageY;
+        }
+      });
+
+      // Update the set of active touches now that one or more touches
+      // finished. If the primary touch just finished, update the viewer pose
+      // based on the final touch movement.
+      canvas.addEventListener("touchend", (event) => {
+        for (let touch of event.changedTouches) {
+          if (primaryTouch == touch.identifier) {
+            primaryTouch = undefined;
+            rotateView(touch.pageX - prevTouchX, touch.pageY - prevTouchY);
+          }
+        }
+      });
+
+      // Update the set of active touches now that one or more touches was
+      // cancelled. Don't update the viewer pose when the primary touch was
+      // cancelled.
+      canvas.addEventListener("touchcancel", (event) => {
+        for (let touch of event.changedTouches) {
+          if (primaryTouch == touch.identifier) {
+            primaryTouch = undefined;
+          }
+        }
+      });
+
+      // Only use the delta between the most recent and previous events for
+      // the primary touch. Ignore the other touches.
+      canvas.addEventListener("touchmove", (event) => {
+        for (let touch of event.changedTouches) {
+          if (primaryTouch == touch.identifier) {
+            rotateView(touch.pageX - prevTouchX, touch.pageY - prevTouchY);
+            prevTouchX = touch.pageX;
+            prevTouchY = touch.pageY;
+          }
+        }
+      });
+    }
+
+    // Start the XR application.
+    initXR();
+  </script>
+</body>
+<img id="textureImg" src="RGB.png" hidden="true">
+<img id="textureImg2" src="depth.png" hidden="true">
+
+</html>
