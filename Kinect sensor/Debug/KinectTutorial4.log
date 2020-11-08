@@ -1,0 +1,8 @@
+﻿  glut.cpp
+  main.cpp
+C:\Users\looki\Downloads\4_SkeletalTracking (1)\4_SkeletalTracking\main.cpp(69,20): warning C4018: '<': signed/unsigned mismatch
+C:\Users\looki\Downloads\4_SkeletalTracking (1)\4_SkeletalTracking\main.cpp(113,34): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+C:\Users\looki\Downloads\4_SkeletalTracking (1)\4_SkeletalTracking\main.cpp(114,34): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+C:\Users\looki\Downloads\4_SkeletalTracking (1)\4_SkeletalTracking\main.cpp(115,34): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+  Generating Code...
+  KinectTutorial4.vcxproj -> C:\Users\looki\Downloads\4_SkeletalTracking (1)\4_SkeletalTracking\Debug\KinectTutorial4.exe
