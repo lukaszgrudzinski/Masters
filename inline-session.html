@@ -110,8 +110,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   exampleSocket.onmessage = function (event) {
   console.log(event.data);
   var urlCreator = window.URL || window.webkitURL;
-   var imageUrl = urlCreator.createObjectURL(this.response);
+  //{type: 'image/bmp'}
+   var imageUrl = URL.createObjectURL(event.data);
    document.querySelector("#textureImg").src = imageUrl;
+
+   onFarmeGot(imageUrl);
 }
 };
 
@@ -189,7 +192,19 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         onSessionStarted(session);
       });
     }
-
+    function onFarmeGot(url)
+    {
+      textureBuffer = gl.createTexture();
+        var textureImg = new Image();
+        textureImg.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
+          gl.bindTexture(gl.TEXTURE_2D, textureBuffer);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+        textureImg.src = url; //Nazwa obrazka
+    }
     function onSessionStarted(session) {
       session.addEventListener('end', onSessionEnded);
 
@@ -322,27 +337,18 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         //vertexColorBuffer.itemSize = 3;
         //vertexColorBuffer.numItems = vertexColor.length/9;
 
-        textureBuffer = gl.createTexture();
-        var textureImg = new Image();
-        textureImg.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
-          gl.bindTexture(gl.TEXTURE_2D, textureBuffer);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        }
-        textureImg.src = "RGB.png"; //Nazwa obrazka
+        //
 
-        textureBuffer2 = gl.createTexture();
-        var textureImg2 = new Image();
-        textureImg2.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
-          gl.bindTexture(gl.TEXTURE_2D, textureBuffer2);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg2); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        }
-        textureImg2.src = "depth.png"; //Nazwa obrazka
+       // textureBuffer2 = gl.createTexture();
+       // var textureImg2 = new Image();
+       // textureImg2.onload = function () { //Wykonanie kodu automatycznie po załadowaniu obrazka
+       //   gl.bindTexture(gl.TEXTURE_2D, textureBuffer2);
+       //   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg2); //Faktyczne załadowanie danych obrazu do pamieci karty graficznej
+       //   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); //Ustawienie parametrów próbkowania tekstury
+       //   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+       //   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      //  }
+       // textureImg2.src = "depth.png"; //Nazwa obrazka
 
       }
 
