@@ -131,9 +131,14 @@ var imageUrl = URL.createObjectURL(event.data.slice(8,rgbLength+8));
 new Response(event.data.slice(4,8)).arrayBuffer()
 .then(b => {
  let depthLength = new Uint32Array(b);
- console.log(depthLength[0]);
-
-
+ console.log("Depth byte L is: " + depthLength[0]);
+      new Response(event.data.slice(event.data.size - depthLength,event.data.size)).arrayBuffer()
+      .then(c => {
+        console.log("Calculated depth length is "+ event.data.size + " and " + depthLength);
+        let d = new Float32Array(c);
+    SetDepth(d);
+    console.log("Number of depth points is " + d.length);
+      })
 }
 );
 
@@ -141,8 +146,13 @@ new Response(event.data.slice(4,8)).arrayBuffer()
 }
 };
 
-function intFromBytes(byteArr) {
-    return byteArr.reduce((a,c,i)=> a+c*2**(56-i*8),0)
+
+function SetDepth(vertexPosition) {
+  vertexPositionBuffer = gl.createBuffer(); //Stworzenie tablicy w pamieci karty graficznej
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPosition), gl.STATIC_DRAW);
+        vertexPositionBuffer.itemSize = 3; //zdefiniowanie liczby współrzednych per wierzchołek
+        vertexPositionBuffer.numItems = vertexPosition.length / 9; //Zdefinoiowanie liczby punktów w naszym buforze
 }
 
     // WebGL scene globals.
@@ -352,11 +362,7 @@ function intFromBytes(byteArr) {
 
         vertexPosition = CreatePointCloud();
 
-        vertexPositionBuffer = gl.createBuffer(); //Stworzenie tablicy w pamieci karty graficznej
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPosition), gl.STATIC_DRAW);
-        vertexPositionBuffer.itemSize = 3; //zdefiniowanie liczby współrzednych per wierzchołek
-        vertexPositionBuffer.numItems = vertexPosition.length / 9; //Zdefinoiowanie liczby punktów w naszym buforze
+        
 
         //vertexColorBuffer = gl.createBuffer();
         //gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
