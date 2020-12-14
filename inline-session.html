@@ -102,7 +102,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     let xrImmersiveRefSpace = null;
     let xrInlineRefSpace = null;
 
-
+    var rewf;
+    let sadas = 5;
 
     let exampleSocket = new WebSocket("ws://localhost:8088");
     exampleSocket.onopen = function (event) {
@@ -111,12 +112,38 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   console.log(event.data);
   var urlCreator = window.URL || window.webkitURL;
   //{type: 'image/bmp'}
-   var imageUrl = URL.createObjectURL(event.data);
-   document.querySelector("#textureImg").src = imageUrl;
 
-   onFarmeGot(imageUrl);
+  var depthLength;
+  var depthbuffer;
+  //event.data.slice(0,4).arrayBuffer().then(buffer => depthLength = (buffer));
+
+  new Response(event.data.slice(0,4)).arrayBuffer()
+.then(b => {
+ let rgbLength = new Uint32Array(b);
+ console.log(rgbLength[0]);
+var imageUrl = URL.createObjectURL(event.data.slice(8,rgbLength+8));
+  document.querySelector("#textureImg").src = imageUrl;
+
+  onFarmeGot(imageUrl);
+
+});
+
+new Response(event.data.slice(4,8)).arrayBuffer()
+.then(b => {
+ let depthLength = new Uint32Array(b);
+ console.log(depthLength[0]);
+
+
+}
+);
+
+  
 }
 };
+
+function intFromBytes(byteArr) {
+    return byteArr.reduce((a,c,i)=> a+c*2**(56-i*8),0)
+}
 
     // WebGL scene globals.
     let gl = null;
